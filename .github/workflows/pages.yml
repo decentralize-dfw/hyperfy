@@ -8,26 +8,24 @@ on:
       - "claude/**"
   workflow_dispatch:
 
-# Allow one concurrent deployment
+# Allow only one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write  # needed to push to gh-pages branch
 
 jobs:
-  build:
-    name: Build static world
+  build-and-deploy:
+    name: Build and deploy 3D world
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -36,24 +34,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build GitHub Pages static world
+      - name: Build static 3D world
         run: npm run pages:build
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      # Push the built output to the gh-pages branch.
+      # GitHub Pages → Settings → Pages → Source: Deploy from branch → gh-pages / (root)
+      - name: Deploy to gh-pages branch
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: ./build/pages
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          folder: build/pages   # directory produced by npm run pages:build
+          branch: gh-pages      # target branch GitHub Pages will serve
+          clean: true           # remove stale files on each deploy
