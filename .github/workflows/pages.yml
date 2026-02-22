@@ -3,8 +3,6 @@ name: Deploy 3D World to GitHub Pages
 on:
   push:
     branches:
-      - main
-      - dev
       - "claude/**"
   workflow_dispatch:
 

@@ -134,14 +134,6 @@ export function Sidebar({ world, ui }) {
             >
               <MenuIcon size='1.25rem' />
             </Btn>
-            <Btn
-              active={activePane === 'players'}
-              suspended={ui.pane === 'players' && !activePane}
-              onClick={() => world.ui.togglePane('players')}
-              title='Players'
-            >
-              <UsersIcon size='1.25rem' />
-            </Btn>
             {isTouch && (
               <Btn
                 onClick={() => {
@@ -263,7 +255,6 @@ export function Sidebar({ world, ui }) {
         {ui.pane === 'script' && <Script key={ui.app.data.id} world={world} hidden={!ui.active} />}
         {ui.pane === 'nodes' && <Nodes key={ui.app.data.id} world={world} hidden={!ui.active} />}
         {ui.pane === 'meta' && <Meta key={ui.app.data.id} world={world} hidden={!ui.active} />}
-        {ui.pane === 'players' && <Players world={world} hidden={!ui.active} />}
       </div>
     </HintProvider>
   )
@@ -912,18 +903,20 @@ function Apps({ world, hidden }) {
 }
 
 function Add({ world, hidden }) {
-  // note: multiple collections are supported by the engine but for now we just use the 'default' collection.
-  const collection = world.collections.get('default')
+  const collection = world.collections?.get('default')
+  const collectionBlueprints = collection?.blueprints || []
   const span = 4
   const gap = '0.5rem'
-  const add = blueprint => {
+  const fileRef = useRef()
+  const [uploading, setUploading] = useState(false)
+
+  const spawnBlueprint = blueprint => {
     blueprint = cloneDeep(blueprint)
     blueprint.id = uuid()
     blueprint.version = 0
     world.blueprints.add(blueprint, true)
     const transform = world.builder.getSpawnTransform(true)
-    world.builder.toggle(true)
-    world.builder.control.pointer.lock()
+    world.builder.setMode('translate')
     setTimeout(() => {
       const data = {
         id: uuid(),
@@ -939,8 +932,60 @@ function Add({ world, hidden }) {
       }
       const app = world.entities.add(data, true)
       world.builder.select(app)
+      world.ui.setApp(app)
     }, 100)
   }
+
+  const uploadModel = async file => {
+    if (!file) return
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (!['glb', 'vrm'].includes(ext)) return
+    setUploading(true)
+    try {
+      const hash = await hashFile(file)
+      const filename = `${hash}.${ext}`
+      const url = `asset://${filename}`
+      const type = ext === 'vrm' ? 'avatar' : 'model'
+      world.loader.insert(type, url, file)
+      await world.network.upload(file)
+      const blueprint = {
+        id: uuid(),
+        version: 0,
+        name: file.name.replace(/\.[^.]+$/, ''),
+        model: url,
+        script: null,
+        props: {},
+        preload: false,
+        disabled: false,
+      }
+      spawnBlueprint(blueprint)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const addSmartObject = () => {
+    const blueprint = {
+      id: uuid(),
+      version: 0,
+      name: 'Smart Object',
+      model: null,
+      script: 'asset://world/scripts/smart-object.js',
+      props: {
+        smartObject: true,
+        currentState: 0,
+        states: [
+          { id: uuid(), name: 'Durum 1', model: null, audio: null, animName: '', animLoop: true, animWait: 2, collider: true, visible: true, color: '#4f46e5' },
+          { id: uuid(), name: 'Durum 2', model: null, audio: null, animName: '', animLoop: true, animWait: 2, collider: true, visible: true, color: '#10b981' },
+          { id: uuid(), name: 'Durum 3', model: null, audio: null, animName: '', animLoop: false, animWait: 0, collider: false, visible: false, color: '#ef4444' },
+        ],
+      },
+      preload: false,
+      disabled: false,
+    }
+    spawnBlueprint(blueprint)
+  }
+
   return (
     <Pane hidden={hidden}>
       <div
@@ -968,6 +1013,43 @@ function Add({ world, hidden }) {
             flex: 1;
             overflow-y: auto;
             padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+          }
+          .add-section-label {
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+          }
+          .add-btn-row {
+            display: flex;
+            gap: 0.5rem;
+          }
+          .add-btn {
+            flex: 1;
+            height: 2.5rem;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.85);
+            font-size: 0.875rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            transition: all 0.15s;
+            &:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); }
+            &:disabled { opacity: 0.5; cursor: not-allowed; }
+            &.accent {
+              background: rgba(79,70,229,0.2);
+              border-color: rgba(79,70,229,0.5);
+              color: #818cf8;
+              &:hover { background: rgba(79,70,229,0.35); }
+            }
           }
           .add-items {
             display: flex;
@@ -995,22 +1077,63 @@ function Add({ world, hidden }) {
         `}
       >
         <div className='add-head'>
-          <div className='add-title'>Add</div>
+          <div className='add-title'>Ekle</div>
         </div>
         <div className='add-content noscrollbar'>
-          <div className='add-items'>
-            {collection.blueprints.map(blueprint => (
-              <div className='add-item' key={blueprint.id} onClick={() => add(blueprint)}>
-                <div
-                  className='add-item-image'
-                  css={css`
-                    background-image: url(${world.resolveURL(blueprint.image?.url)});
-                  `}
-                ></div>
-                <div className='add-item-name'>{blueprint.name}</div>
-              </div>
-            ))}
+          {/* File upload */}
+          <div>
+            <div className='add-section-label'>Model / Sahne</div>
+            <div className='add-btn-row'>
+              <button
+                className='add-btn'
+                disabled={uploading}
+                onClick={() => fileRef.current?.click()}
+              >
+                {uploading ? 'Yükleniyor...' : '3D Model Yükle (.glb)'}
+              </button>
+              <input
+                ref={fileRef}
+                type='file'
+                accept='.glb,.vrm'
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const f = e.target.files?.[0]
+                  if (f) uploadModel(f)
+                  e.target.value = ''
+                }}
+              />
+            </div>
           </div>
+
+          {/* Smart Object */}
+          <div>
+            <div className='add-section-label'>İnteraktif</div>
+            <div className='add-btn-row'>
+              <button className='add-btn accent' onClick={addSmartObject}>
+                Smart Object (3 Durum)
+              </button>
+            </div>
+          </div>
+
+          {/* Collection blueprints */}
+          {collectionBlueprints.length > 0 && (
+            <div>
+              <div className='add-section-label'>Koleksiyon</div>
+              <div className='add-items'>
+                {collectionBlueprints.map(blueprint => (
+                  <div className='add-item' key={blueprint.id} onClick={() => spawnBlueprint(blueprint)}>
+                    <div
+                      className='add-item-image'
+                      css={css`
+                        background-image: url(${world.resolveURL(blueprint.image?.url)});
+                      `}
+                    ></div>
+                    <div className='add-item-name'>{blueprint.name}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </Pane>
