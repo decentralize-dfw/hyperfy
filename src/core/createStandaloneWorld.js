@@ -1,11 +1,10 @@
 import { World } from './World'
 
 import { Client } from './systems/Client'
-import { ClientLiveKit } from './systems/ClientLiveKit'
 import { ClientPointer } from './systems/ClientPointer'
 import { ClientPrefs } from './systems/ClientPrefs'
 import { ClientControls } from './systems/ClientControls'
-import { ClientNetwork } from './systems/ClientNetwork'
+import { LocalNetwork } from './systems/LocalNetwork'
 import { ClientLoader } from './systems/ClientLoader'
 import { ClientCSS } from './systems/ClientCSS'
 import { ClientGraphics } from './systems/ClientGraphics'
@@ -24,14 +23,20 @@ import { Wind } from './systems/Wind'
 import { XR } from './systems/XR'
 import { ClientAI } from './systems/ClientAI'
 
-export function createClientWorld() {
+/**
+ * Creates a standalone (offline/static hosting) world.
+ *
+ * Identical to createClientWorld but uses LocalNetwork instead of ClientNetwork,
+ * so no WebSocket server is required. World data is loaded from a static JSON file.
+ * This enables deployment to GitHub Pages or any static file host.
+ */
+export function createStandaloneWorld() {
   const world = new World()
   world.register('client', Client)
-  world.register('livekit', ClientLiveKit)
   world.register('pointer', ClientPointer)
   world.register('prefs', ClientPrefs)
   world.register('controls', ClientControls)
-  world.register('network', ClientNetwork)
+  world.register('network', LocalNetwork)
   world.register('loader', ClientLoader)
   world.register('css', ClientCSS)
   world.register('graphics', ClientGraphics)

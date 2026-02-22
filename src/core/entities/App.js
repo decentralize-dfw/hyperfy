@@ -81,15 +81,20 @@ export class App extends Entity {
     }
     // otherwise we can load the model and script
     else {
-      try {
-        const type = blueprint.model.endsWith('vrm') ? 'avatar' : 'model'
-        let glb = this.world.loader.get(type, blueprint.model)
-        if (!glb) glb = await this.world.loader.load(type, blueprint.model)
-        root = glb.toNodes()
-      } catch (err) {
-        console.error(err)
-        crashed = true
-        // no model, will use crash block below
+      if (blueprint.model) {
+        try {
+          const type = blueprint.model.endsWith('vrm') ? 'avatar' : 'model'
+          let glb = this.world.loader.get(type, blueprint.model)
+          if (!glb) glb = await this.world.loader.load(type, blueprint.model)
+          root = glb.toNodes()
+        } catch (err) {
+          console.error(err)
+          crashed = true
+          // no model, will use crash block below
+        }
+      } else {
+        // script-only app: use an empty group as root so scripts can add nodes
+        root = createNode('group')
       }
       // fetch script (if any)
       if (blueprint.script) {
@@ -120,9 +125,9 @@ export class App extends Entity {
     this.blueprint = blueprint
     this.root = root
     if (!blueprint.scene) {
-      this.root.position.fromArray(this.data.position)
-      this.root.quaternion.fromArray(this.data.quaternion)
-      this.root.scale.fromArray(this.data.scale)
+      this.root.position.fromArray(this.data.position ?? [0, 0, 0])
+      this.root.quaternion.fromArray(this.data.quaternion ?? [0, 0, 0, 1])
+      this.root.scale.fromArray(this.data.scale ?? [1, 1, 1])
     }
     // activate
     this.root.activate({ world: this.world, entity: this, moving: !!this.data.mover })
@@ -432,6 +437,7 @@ export class App extends Entity {
     // note: this is currently just used in the nodes tab in the app inspector
     // to get a clean hierarchy
     if (!this.blueprint) return
+    if (!this.blueprint.model) return
     const type = this.blueprint.model.endsWith('vrm') ? 'avatar' : 'model'
     let glb = this.world.loader.get(type, this.blueprint.model)
     if (!glb) return

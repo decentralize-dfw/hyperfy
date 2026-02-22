@@ -1,0 +1,49 @@
+{
+  "settings": {
+    "title": "Hyperfy 3D World",
+    "desc": "An interactive 3D virtual world built with Hyperfy — explore, build, and experience",
+    "image": null,
+    "avatar": null,
+    "customAvatars": null,
+    "voice": false,
+    "rank": "editor",
+    "playerLimit": null,
+    "ao": true
+  },
+  "spawn": {
+    "position": [0, 2, 14],
+    "quaternion": [0, 0, 0, 1]
+  },
+  "defaultAvatar": "asset://avatar.vrm",
+  "collections": [],
+  "chat": [],
+  "ai": {
+    "enabled": false,
+    "provider": null,
+    "model": null,
+    "effort": null
+  },
+  "blueprints": [
+    {
+      "id": "bp-demo-world",
+      "version": 0,
+      "name": "Demo World",
+      "script": "asset://world/scripts/demo-world.js",
+      "model": null,
+      "props": {},
+      "preload": true,
+      "disabled": false
+    }
+  ],
+  "entities": [
+    {
+      "id": "entity-demo-world",
+      "type": "app",
+      "blueprint": "bp-demo-world",
+      "position": [0, 0, 0],
+      "quaternion": [0, 0, 0, 1],
+      "scale": [1, 1, 1],
+      "state": {}
+    }
+  ]
+}

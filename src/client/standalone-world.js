@@ -1,35 +1,50 @@
-// import 'ses'
-// import '../core/lockdown'
 import * as THREE from 'three'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { css } from '@firebolt-dev/css'
 
-import { createClientWorld } from '../core/createClientWorld'
+import { createStandaloneWorld } from '../core/createStandaloneWorld'
 import { CoreUI } from './components/CoreUI'
 
 export { System } from '../core/systems/System'
 
-export function Client({ wsUrl, onSetup }) {
+/**
+ * StandaloneClient — a self-contained 3D world component that loads world data
+ * from a static JSON file. No WebSocket server required.
+ *
+ * Drop into any static web host (GitHub Pages, Netlify, S3, …) and it just works.
+ */
+export function StandaloneClient({ onSetup }) {
   const viewportRef = useRef()
   const cssLayerRef = useRef()
   const uiRef = useRef()
-  const world = useMemo(() => createClientWorld(), [])
+  const world = useMemo(() => createStandaloneWorld(), [])
   const [ui, setUI] = useState(world.ui.state)
+
   useEffect(() => {
     world.on('ui', setUI)
     return () => {
       world.off('ui', setUI)
     }
   }, [])
+
   useEffect(() => {
     const init = async () => {
       const viewport = viewportRef.current
       const cssLayer = cssLayerRef.current
       const ui = uiRef.current
+
+      // Compute the base path so assets resolve correctly whether the app is
+      // deployed at the domain root (https://example.com/) or a sub-path
+      // (https://user.github.io/repo-name/).
+      const pathname = window.location.pathname
+      const basePath = pathname.endsWith('/')
+        ? pathname
+        : pathname.substring(0, pathname.lastIndexOf('/') + 1)
+
       const baseEnvironment = {
-        model: '/base-environment.glb',
-        bg: null, // '/day2-2k.jpg',
-        hdr: '/Clear_08_4pm_LDR.hdr',
+        model: basePath + 'base-environment.glb',
+        bg: null,
+        hdr: basePath + 'Clear_08_4pm_LDR.hdr',
         rotationY: 0,
         sunDirection: new THREE.Vector3(-1, -2, -2).normalize(),
         sunIntensity: 1,
@@ -38,16 +53,13 @@ export function Client({ wsUrl, onSetup }) {
         fogFar: null,
         fogColor: null,
       }
-      if (typeof wsUrl === 'function') {
-        wsUrl = wsUrl()
-        if (wsUrl instanceof Promise) wsUrl = await wsUrl
-      }
-      const config = { viewport, cssLayer, ui, wsUrl, baseEnvironment }
+      const config = { viewport, cssLayer, ui, baseEnvironment }
       onSetup?.(world, config)
       world.init(config)
     }
     init()
   }, [])
+
   return (
     <div
       className='App'
