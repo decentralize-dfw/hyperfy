@@ -1,4 +1,5 @@
 import { emoteUrls } from '../extras/playerEmotes'
+import { Ranks } from '../extras/ranks'
 import { System } from './System'
 import { uuid } from '../utils'
 
@@ -85,11 +86,13 @@ export class LocalNetwork extends System {
       avatar: null,
       customAvatars: null,
       voice: false,
-      rank: 'editor',
       playerLimit: null,
       ao: true,
       ...worldData.settings,
+      // Always set rank to ADMIN in standalone mode so every visitor can build
+      rank: Ranks.ADMIN,
     })
+    // No admin code in standalone mode → effectiveRank = Ranks.ADMIN for everyone
     this.world.settings.setHasAdminCode(false)
     this.world.chat.deserialize(worldData.chat || [])
     this.world.ai.deserialize(
@@ -112,7 +115,7 @@ export class LocalNetwork extends System {
       sessionAvatar: null,
       avatar: defaultAvatar,
       name: 'Player',
-      rank: 'editor',
+      rank: Ranks.ADMIN,
       roles: [],
       emote: null,
       moving: false,
