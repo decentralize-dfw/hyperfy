@@ -65,7 +65,7 @@ export class ClientAudio extends System {
         const video = document.createElement('video')
         video.playsInline = true
         video.muted = true
-        video.src = '/tiny.mp4'
+        video.src = 'tiny.mp4'
         video
           .play()
           .then(() => {

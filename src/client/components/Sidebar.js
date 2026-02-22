@@ -84,8 +84,9 @@ backdrop-filter: blur(5px);
 export function Sidebar({ world, ui }) {
   const player = world.entities.player
   const { isAdmin, isBuilder } = useRank(world, player)
-  const [livekit, setLiveKit] = useState(() => world.livekit.status)
+  const [livekit, setLiveKit] = useState(() => world.livekit?.status ?? { available: false, connected: false, mic: false, screenshare: null, level: null })
   useEffect(() => {
+    if (!world.livekit) return
     const onLiveKitStatus = status => {
       setLiveKit({ ...status })
     }

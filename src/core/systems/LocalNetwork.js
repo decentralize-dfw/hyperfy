@@ -106,6 +106,7 @@ export class LocalNetwork extends System {
       owner: this.id,
       position: spawn.position,
       quaternion: spawn.quaternion,
+      scale: [1, 1, 1],
       health: 100,
       effects: [],
       sessionAvatar: null,
