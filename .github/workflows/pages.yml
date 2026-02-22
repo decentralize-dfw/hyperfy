@@ -36,6 +36,11 @@ jobs:
 
       - name: Build static 3D world
         run: npm run pages:build
+        env:
+          # GITHUB_REPOSITORY is automatically set by Actions (e.g. "decentralize-dfw/hyperfy")
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # The branch that contains the world source files and receives editor saves
+          PAGES_BRANCH: ${{ github.ref_name }}
 
       # Push the built output to the gh-pages branch.
       # GitHub Pages → Settings → Pages → Source: Deploy from branch → gh-pages / (root)

@@ -9,6 +9,10 @@
  * Usage:
  *   node scripts/build-pages.mjs
  *   node scripts/build-pages.mjs --dev   (watch mode)
+ *
+ * Environment variables (injected by GitHub Actions):
+ *   GITHUB_REPOSITORY   e.g.  "decentralize-dfw/hyperfy"
+ *   PAGES_BRANCH        e.g.  "claude/hyperfy-3d-world-publish-ZrP5k"
  */
 
 import 'dotenv-flow/config'
@@ -17,6 +21,7 @@ import path from 'path'
 import * as esbuild from 'esbuild'
 import { fileURLToPath } from 'url'
 import { polyfillNode } from 'esbuild-plugin-polyfill-node'
+import { createHash } from 'crypto'
 
 const dev = process.argv.includes('--dev')
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -33,6 +38,17 @@ const clientHtmlDest = path.join(pagesBuildDir, 'index.html')
 await fs.emptyDir(pagesBuildDir)
 
 console.log('Building Hyperfy static world for GitHub Pages...')
+
+// ─── Password hash (never store plaintext in deployed JS) ─────────────────────
+// The password is hashed here at build time; only the hash reaches the browser.
+// SHA-256 is one-way — F12 / Ctrl+U will see only the hash, not the password.
+const _rawPw = Buffer.from('6d6f6e73746572626579617a', 'hex').toString('utf8') // obfuscated
+const editorPasswordHash = createHash('sha256').update(_rawPw).digest('hex')
+
+// ─── GitHub repo info (injected into env.js so the editor can call the API) ───
+const githubRepository = process.env.GITHUB_REPOSITORY || 'decentralize-dfw/hyperfy'
+const [githubOwner, githubRepoName] = githubRepository.split('/')
+const githubBranch = process.env.PAGES_BRANCH || 'claude/hyperfy-3d-world-publish-ZrP5k'
 
 // ─── Build JS ────────────────────────────────────────────────────────────────
 
@@ -55,6 +71,8 @@ const clientCtx = await esbuild.context({
   jsxImportSource: '@firebolt-dev/jsx',
   define: {
     'process.env.NODE_ENV': dev ? '"development"' : '"production"',
+    // Editor password hash — injected at build time so plaintext never appears in deployed JS
+    '__EDITOR_PW_HASH__': JSON.stringify(editorPasswordHash),
   },
   loader: {
     '.js': 'jsx',
@@ -88,9 +106,21 @@ const clientCtx = await esbuild.context({
           const physxWasmDest = path.join(pagesBuildDir, 'physx-js-webidl.wasm')
           await fs.copy(physxWasmSrc, physxWasmDest)
 
-          // 4. Write a minimal env.js (no server env vars needed in standalone mode)
+          // 4. Write env.js — includes GitHub repo info for the editor's save-to-GitHub feature
           const envJsDest = path.join(pagesBuildDir, 'env.js')
-          await fs.writeFile(envJsDest, '// Standalone mode — no server environment variables needed\nwindow.env = {}\n')
+          await fs.writeFile(
+            envJsDest,
+            [
+              '// Standalone mode — server env vars not needed.',
+              '// GitHub repo info is used by the editor overlay to commit saved worlds.',
+              `window.env = {`,
+              `  GITHUB_OWNER: ${JSON.stringify(githubOwner)},`,
+              `  GITHUB_REPO: ${JSON.stringify(githubRepoName)},`,
+              `  GITHUB_BRANCH: ${JSON.stringify(githubBranch)},`,
+              `}`,
+              '',
+            ].join('\n')
+          )
 
           // 5. Find generated JS filenames from metafile
           //    Paths are relative (no leading /) for GitHub Pages sub-path compatibility
@@ -119,6 +149,8 @@ const clientCtx = await esbuild.context({
           await fs.writeFile(path.join(pagesBuildDir, '.nojekyll'), '')
 
           console.log('Build complete! Output: build/pages/')
+          console.log(`  Editor password hash injected (SHA-256, not plaintext)`)
+          console.log(`  GitHub repo: ${githubOwner}/${githubRepoName} @ ${githubBranch}`)
           if (dev) console.log('Watching for changes...')
         })
       },

@@ -4,6 +4,7 @@ import { css } from '@firebolt-dev/css'
 
 import { createStandaloneWorld } from '../core/createStandaloneWorld'
 import { CoreUI } from './components/CoreUI'
+import { StandaloneEditorGate } from './standalone-editor'
 
 export { System } from '../core/systems/System'
 
@@ -12,6 +13,8 @@ export { System } from '../core/systems/System'
  * from a static JSON file. No WebSocket server required.
  *
  * Drop into any static web host (GitHub Pages, Netlify, S3, …) and it just works.
+ *
+ * Editor: Press Shift+A to open the password-protected editor overlay.
  */
 export function StandaloneClient({ onSetup }) {
   const viewportRef = useRef()
@@ -19,11 +22,14 @@ export function StandaloneClient({ onSetup }) {
   const uiRef = useRef()
   const world = useMemo(() => createStandaloneWorld(), [])
   const [ui, setUI] = useState(world.ui.state)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     world.on('ui', setUI)
+    world.on('ready', setReady)
     return () => {
       world.off('ui', setUI)
+      world.off('ready', setReady)
     }
   }, [])
 
@@ -96,6 +102,8 @@ export function StandaloneClient({ onSetup }) {
           <CoreUI world={world} />
         </div>
       </div>
+      {/* Editor gate renders outside the UI layer so it always sits on top */}
+      <StandaloneEditorGate world={world} />
     </div>
   )
 }

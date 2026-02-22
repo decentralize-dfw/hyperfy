@@ -1,6 +1,7 @@
 import { emoteUrls } from '../extras/playerEmotes'
 import { System } from './System'
 import { uuid } from '../utils'
+import { hashFile } from '../utils-client'
 
 /**
  * Local Network System
@@ -17,9 +18,16 @@ export class LocalNetwork extends System {
     this.isClient = true
     this.isServer = false
     this.apiUrl = null
-    this.maxUploadSize = 0
+    this.maxUploadSize = 100  // MB — allow up to 100 MB uploads locally
     this.serverTimeOffset = 0
     this.queue = []
+
+    // Track files dropped/uploaded by the editor so we can push them to GitHub on save
+    // Map<assetUrl, File>  e.g.  "asset://abc.glb" => <File>
+    this._pendingFiles = new Map()
+
+    // Remember spawn so the save function can include it
+    this._worldSpawn = { position: [0, 2, 8], quaternion: [0, 0, 0, 1] }
   }
 
   async init(options) {
@@ -45,6 +53,11 @@ export class LocalNetwork extends System {
         chat: [],
         ai: { enabled: false, provider: null, model: null, effort: null },
       }
+    }
+
+    // Store spawn for later serialisation by the editor
+    if (worldData.spawn) {
+      this._worldSpawn = worldData.spawn
     }
 
     // Preload avatar from settings
@@ -83,14 +96,17 @@ export class LocalNetwork extends System {
       desc: 'An interactive 3D virtual world built with Hyperfy',
       image: null,
       avatar: null,
-      customAvatars: null,
+      customAvatars: true,
       voice: false,
-      rank: 'editor',
+      rank: 0,
       playerLimit: null,
       ao: true,
       ...worldData.settings,
+      rank: 0,               // always 0 so effectiveRank=0 when hasAdminCode=true
     })
-    this.world.settings.setHasAdminCode(false)
+    // With hasAdminCode=true and rank=0, effectiveRank=0 for everyone.
+    // Players start as VISITOR; the editor overlay elevates rank after password verification.
+    this.world.settings.setHasAdminCode(true)
     this.world.chat.deserialize(worldData.chat || [])
     this.world.ai.deserialize(
       worldData.ai || { enabled: false, provider: null, model: null, effort: null }
@@ -98,7 +114,7 @@ export class LocalNetwork extends System {
     this.world.blueprints.deserialize(worldData.blueprints || [])
     this.world.entities.deserialize(worldData.entities || [])
 
-    // Add local player entity with spawn position from world data
+    // Add local player entity — rank 0 (VISITOR) until password unlocks it
     const spawn = worldData.spawn || { position: [0, 2, 8], quaternion: [0, 0, 0, 1] }
     const playerEntity = {
       id: uuid(),
@@ -112,7 +128,7 @@ export class LocalNetwork extends System {
       sessionAvatar: null,
       avatar: defaultAvatar,
       name: 'Player',
-      rank: 'editor',
+      rank: 0,      // numeric VISITOR — isBuilder() returns false until elevated by password gate
       roles: [],
       emote: null,
       moving: false,
@@ -123,8 +139,26 @@ export class LocalNetwork extends System {
   // No-ops: standalone mode has no server to communicate with
   send(name, data) {}
 
+  /**
+   * upload(file) — called by ClientBuilder when a file is drag-dropped.
+   *
+   * In standalone mode we cannot push the file to a server immediately.
+   * Instead we:
+   *   1. Compute a deterministic hash-based asset:// URL (same logic as ClientBuilder.addModel)
+   *   2. Store the File in _pendingFiles so the editor can later upload it to GitHub
+   *
+   * ClientBuilder already called world.loader.insert(type, url, file) before calling upload(),
+   * so the asset is already available locally for rendering.
+   */
   async upload(file) {
-    console.warn('[LocalNetwork] File upload not supported in standalone mode')
+    try {
+      const hash = await hashFile(file)
+      const ext = file.name.split('.').pop().toLowerCase()
+      const url = `asset://${hash}.${ext}`
+      this._pendingFiles.set(url, file)
+    } catch (e) {
+      console.warn('[LocalNetwork] Could not track upload file for later GitHub push:', e)
+    }
   }
 
   getTime() {
