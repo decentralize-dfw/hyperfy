@@ -535,126 +535,202 @@ function SaveFab({ onSave, onConfigPAT }) {
 }
 
 // ------------------------------------------------------------------
-// SmartObjectEditor — shows 3-state editor for smart objects
+// ------------------------------------------------------------------
+// SmartObjectEditor — SDK-compatible 3-stage editor
+// Matches the field structure from the SDK script's getStore()
 // ------------------------------------------------------------------
 function SmartObjectEditor({ entity, world }) {
   const blueprint = entity?.blueprint
   if (!blueprint?.props?.smartObject) return null
 
-  const [props, setProps] = useState(() => ({
-    states: blueprint.props.states || [
-      { id: genId(), name: 'Durum 1', model: null, audio: null, animName: '', animLoop: true, animWait: 2, collider: true, visible: true, color: '#4f46e5' },
-      { id: genId(), name: 'Durum 2', model: null, audio: null, animName: '', animLoop: true, animWait: 2, collider: true, visible: true, color: '#10b981' },
-      { id: genId(), name: 'Durum 3', model: null, audio: null, animName: '', animLoop: false, animWait: 0, collider: false, visible: false, color: '#ef4444' },
-    ],
-  }))
-  const [expanded, setExpanded] = useState([0, 1, 2])
-  const modelFileRefs = [useRef(), useRef(), useRef()]
-  const audioFileRefs = [useRef(), useRef(), useRef()]
+  const [activeStage, setActiveStage] = useState(blueprint.props.stage || 1)
+  const modelRefs = [useRef(), useRef(), useRef()]
+  const audioRefs = [useRef(), useRef(), useRef()]
 
-  const saveProps = (newProps) => {
-    setProps(newProps)
+  const p = blueprint.props
+
+  const updateProp = (key, value) => {
     const version = blueprint.version + 1
-    world.blueprints.modify({ id: blueprint.id, version, props: { ...blueprint.props, ...newProps } })
-    world.network.send('blueprintModified', { id: blueprint.id, version, props: { ...blueprint.props, ...newProps } })
+    const newProps = { ...blueprint.props, [key]: value }
+    world.blueprints.modify({ id: blueprint.id, version, props: newProps })
+    world.network.send('blueprintModified', { id: blueprint.id, version, props: newProps })
   }
 
-  const updateState = (idx, key, value) => {
-    const newStates = props.states.map((s, i) => i === idx ? { ...s, [key]: value } : s)
-    saveProps({ ...props, states: newStates })
-  }
-
-  const toggleExpanded = (idx) => {
-    setExpanded(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx])
-  }
-
-  const uploadModel = async (idx, file) => {
-    if (!file) return
-    const ext = file.name.split('.').pop().toLowerCase()
-    if (ext !== 'glb') return
-    try {
-      const { hashFile } = await import('../core/utils-client')
-      const hash = await hashFile(file)
-      const url = `asset://${hash}.glb`
-      world.loader.insert('model', url, file)
-      await world.network.upload(file)
-      updateState(idx, 'model', url)
-    } catch (e) {
-      console.error('Model upload error', e)
-    }
-  }
-
-  const uploadAudio = async (idx, file) => {
+  const uploadFile = async (key, file, type) => {
     if (!file) return
     try {
-      const { hashFile } = await import('../core/utils-client')
+      const { hashFile } = await import('../../core/utils-client')
       const hash = await hashFile(file)
       const ext = file.name.split('.').pop().toLowerCase()
       const url = `asset://${hash}.${ext}`
+      if (type === 'model') world.loader.insert('model', url, file)
       await world.network.upload(file)
-      updateState(idx, 'audio', url)
-    } catch (e) {
-      console.error('Audio upload error', e)
-    }
+      updateProp(key, url)
+    } catch (e) { console.error('Upload error', e) }
   }
 
-  const stateColors = ['#4f46e5', '#10b981', '#ef4444']
+  const stageColors = ['#4f46e5', '#10b981', '#ef4444']
+  const stageIdx = activeStage - 1
+
+  // Get effective values for current stage (respecting inherit/override)
+  const getEffective = (key, stage) => {
+    if (stage === 1) return p[`${key}1`]
+    const override = p[`${key}Override${stage}`]
+    return override ? p[`${key}${stage}`] : getEffective(key, stage - 1)
+  }
+
+  const renderFileBtn = (key, accept, label, type) => {
+    const val = p[key]
+    const short = val ? val.split('/').pop().slice(0, 14) : null
+    return (
+      <div className='so-value'>
+        <button
+          className={`so-file-btn${val ? ' has-file' : ''}`}
+          onClick={() => {
+            const idx = parseInt(key.slice(-1)) - 1
+            const refs = type === 'audio' ? audioRefs : modelRefs
+            refs[idx]?.current?.click()
+          }}
+        >
+          {short ? `${short}` : label}
+        </button>
+        {val && (
+          <button className='so-clear-btn' onClick={() => updateProp(key, null)}>
+            <XIcon size='0.75rem' />
+          </button>
+        )}
+        <input
+          ref={type === 'audio' ? audioRefs[parseInt(key.slice(-1)) - 1] : modelRefs[parseInt(key.slice(-1)) - 1]}
+          type='file' accept={accept} style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(key, f, type); e.target.value = '' }}
+        />
+      </div>
+    )
+  }
+
+  const renderToggle = (key, onLabel, offLabel) => {
+    const val = p[key]
+    return (
+      <button
+        className={`so-toggle ${val ? 'on' : 'off'}`}
+        onClick={() => updateProp(key, !val)}
+      >
+        {val ? onLabel : offLabel}
+      </button>
+    )
+  }
+
+  const renderInteract = (key, radiusKey, hintKey) => {
+    const val = p[key]
+    const opts = [
+      { label: 'Yok', value: null },
+      { label: 'Tıkla', value: 'click' },
+      { label: 'Yakınlık', value: 'proximity' },
+    ]
+    return (
+      <>
+        <div className='so-row'>
+          <div className='so-label'>Etkileşim</div>
+          <div className='so-value'>
+            <div className='so-seg'>
+              {opts.map(o => (
+                <button
+                  key={String(o.value)}
+                  className={`so-seg-btn${val === o.value ? ' active' : ''}`}
+                  onClick={() => updateProp(key, o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {val === 'proximity' && (
+          <div className='so-row'>
+            <div className='so-label'>Yarıçap</div>
+            <div className='so-value'>
+              <button className='so-step-btn' onClick={() => updateProp(radiusKey, Math.max(0.1, ((p[radiusKey] || 1) - 0.1)))}>
+                <Minus size='0.75rem' />
+              </button>
+              <input
+                className='so-num-input'
+                type='number' min='0.1' step='0.1'
+                value={(p[radiusKey] || 1).toFixed(1)}
+                onChange={e => updateProp(radiusKey, parseFloat(e.target.value) || 1)}
+              />
+              <button className='so-step-btn' onClick={() => updateProp(radiusKey, ((p[radiusKey] || 1) + 0.1))}>
+                <Plus size='0.75rem' />
+              </button>
+              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>m</span>
+            </div>
+          </div>
+        )}
+        {val === 'click' && (
+          <div className='so-row'>
+            <div className='so-label'>Hint</div>
+            <div className='so-value'>
+              <input
+                className='so-input'
+                placeholder='Tıkla...'
+                value={p[hintKey] || ''}
+                onChange={e => updateProp(hintKey, e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+      </>
+    )
+  }
+
+  const s = activeStage
+  const isOverrideStage = s > 1
 
   return (
     <div
-      className='so-editor'
       css={css`
         background: rgba(11,10,21,0.9);
         border: 1px solid rgba(255,255,255,0.05);
         border-radius: 1.375rem;
-        margin-top: 0.5rem;
         display: flex;
         flex-direction: column;
 
         .so-head {
-          height: 3.125rem; padding: 0 1rem;
+          height: 3rem; padding: 0 0.875rem;
           border-bottom: 1px solid rgba(255,255,255,0.05);
           display: flex; align-items: center; gap: 0.5rem;
-          font-size: 1rem; font-weight: 500;
+          font-size: 0.9rem; font-weight: 600; color: rgba(255,255,255,0.85);
         }
-        .so-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #a29bfe; }
+        .so-stage-tabs {
+          display: flex; padding: 0.375rem;
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+          gap: 0.25rem;
+        }
+        .so-stage-tab {
+          flex: 1; height: 2rem; border-radius: 0.5rem;
+          font-size: 0.8125rem; font-weight: 500; cursor: pointer;
+          display: flex; align-items: center; justify-content: center; gap: 0.3rem;
+          transition: all 0.12s;
+          background: transparent; color: rgba(255,255,255,0.4);
+          &:hover { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); }
+          &.active { background: rgba(255,255,255,0.08); color: white; }
+        }
+        .so-stage-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex-shrink: 0; }
 
-        .so-body { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; }
+        .so-body { padding: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
 
-        .so-state {
-          border-radius: 0.875rem;
-          border: 1px solid rgba(255,255,255,0.07);
-          overflow: hidden;
-        }
-        .so-state-head {
-          display: flex; align-items: center; gap: 0.5rem;
-          padding: 0.625rem 0.75rem; cursor: pointer;
-          &:hover { background: rgba(255,255,255,0.04); }
-        }
-        .so-state-dot { width: 0.625rem; height: 0.625rem; border-radius: 50%; flex-shrink: 0; }
-        .so-state-name { flex: 1; font-size: 0.9375rem; font-weight: 500; }
-        .so-state-name-input {
-          flex: 1; background: transparent; border: none; color: white;
-          font-size: 0.9375rem; font-weight: 500; outline: none;
-          &:focus { text-decoration: underline; }
-        }
-        .so-chevron { color: rgba(255,255,255,0.4); transition: transform 0.15s; &.open { transform: rotate(90deg); } }
-
-        .so-state-body {
-          padding: 0.5rem 0.75rem 0.75rem;
-          display: flex; flex-direction: column; gap: 0.5rem;
-          border-top: 1px solid rgba(255,255,255,0.05);
+        .so-section {
+          font-size: 0.7rem; color: rgba(255,255,255,0.3); text-transform: uppercase;
+          letter-spacing: 0.05em; padding: 0.375rem 0.375rem 0.125rem;
         }
 
         .so-row {
-          display: flex; align-items: center; gap: 0.5rem;
-          min-height: 2rem;
+          display: flex; align-items: center; gap: 0.375rem; min-height: 2rem;
         }
         .so-label {
           font-size: 0.8125rem; color: rgba(255,255,255,0.5);
-          width: 5.5rem; flex-shrink: 0;
+          width: 5.25rem; flex-shrink: 0;
         }
-        .so-value { flex: 1; display: flex; align-items: center; gap: 0.375rem; }
+        .so-value { flex: 1; display: flex; align-items: center; gap: 0.3rem; }
 
         .so-input {
           flex: 1; height: 1.875rem; padding: 0 0.5rem;
@@ -663,190 +739,142 @@ function SmartObjectEditor({ entity, world }) {
           &:focus { border-color: rgba(255,255,255,0.3); }
         }
         .so-num-input {
-          width: 4rem; height: 1.875rem; padding: 0 0.375rem; text-align: center;
+          width: 3.5rem; height: 1.875rem; padding: 0 0.25rem; text-align: center;
           background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
           border-radius: 0.5rem; color: white; font-size: 0.8125rem; outline: none;
           &:focus { border-color: rgba(255,255,255,0.3); }
         }
         .so-step-btn {
-          width: 1.625rem; height: 1.875rem; border-radius: 0.4rem;
+          width: 1.5rem; height: 1.875rem; border-radius: 0.4rem;
           background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
-          color: white; font-size: 1rem; cursor: pointer; display: flex;
-          align-items: center; justify-content: center;
+          color: white; cursor: pointer; display: flex; align-items: center; justify-content: center;
           &:hover { background: rgba(255,255,255,0.15); }
         }
         .so-toggle {
-          height: 1.875rem; padding: 0 0.625rem; border-radius: 0.5rem;
+          height: 1.875rem; padding: 0 0.5rem; border-radius: 0.5rem;
           font-size: 0.8125rem; cursor: pointer; display: flex; align-items: center;
-          gap: 0.3rem; transition: all 0.15s;
-          &.on { background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); color: #10b981; }
-          &.off { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); }
+          gap: 0.3rem; transition: all 0.12s;
+          &.on { background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.35); color: #10b981; }
+          &.off { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.45); }
         }
         .so-file-btn {
-          height: 1.875rem; padding: 0 0.625rem; border-radius: 0.5rem;
+          height: 1.875rem; padding: 0 0.5rem; border-radius: 0.5rem; flex: 1;
           background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
           color: rgba(255,255,255,0.7); font-size: 0.8125rem; cursor: pointer;
-          display: flex; align-items: center; gap: 0.3rem;
+          display: flex; align-items: center;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
           &:hover { background: rgba(255,255,255,0.12); }
-          &.has-file { background: rgba(79,70,229,0.15); border-color: rgba(79,70,229,0.4); color: #818cf8; }
+          &.has-file { background: rgba(79,70,229,0.15); border-color: rgba(79,70,229,0.4); color: #a5b4fc; }
         }
         .so-clear-btn {
-          width: 1.625rem; height: 1.875rem; border-radius: 0.4rem;
+          width: 1.5rem; height: 1.875rem; flex-shrink: 0; border-radius: 0.4rem;
           background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
-          color: #f87171; font-size: 0.875rem; cursor: pointer; display: flex;
-          align-items: center; justify-content: center;
+          color: #f87171; cursor: pointer; display: flex; align-items: center; justify-content: center;
           &:hover { background: rgba(239,68,68,0.2); }
+        }
+        .so-seg { display: flex; gap: 0.2rem; background: rgba(255,255,255,0.04); border-radius: 0.5rem; padding: 0.15rem; }
+        .so-seg-btn {
+          flex: 1; height: 1.5rem; border-radius: 0.375rem; font-size: 0.75rem;
+          cursor: pointer; display: flex; align-items: center; justify-content: center;
+          color: rgba(255,255,255,0.45); transition: all 0.12s;
+          &:hover { color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.06); }
+          &.active { background: rgba(255,255,255,0.1); color: white; }
+        }
+        .so-override {
+          display: flex; align-items: center; gap: 0.375rem;
+          padding: 0.25rem 0.375rem 0.125rem; margin-bottom: 0.125rem;
+        }
+        .so-override-label { font-size: 0.75rem; color: rgba(255,255,255,0.3); flex: 1; }
+        .so-override-btn {
+          height: 1.5rem; padding: 0 0.5rem; border-radius: 0.375rem;
+          font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;
+          transition: all 0.12s;
+          &.on { background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.35); color: #a5b4fc; }
+          &.off { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.35); }
         }
       `}
     >
       <div className='so-head'>
-        <div className='so-dot' />
-        Smart Object — Durum Editörü
+        <div style={{ width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: '#a29bfe', flexShrink: 0 }} />
+        Smart Object
       </div>
+
+      {/* Stage tabs */}
+      <div className='so-stage-tabs'>
+        {[1, 2, 3].map(n => (
+          <button
+            key={n}
+            className={`so-stage-tab${activeStage === n ? ' active' : ''}`}
+            onClick={() => setActiveStage(n)}
+          >
+            <div className='so-stage-dot' style={{ background: stageColors[n - 1] }} />
+            Durum {n}
+          </button>
+        ))}
+      </div>
+
       <div className='so-body'>
-        {props.states.map((state, idx) => {
-          const isOpen = expanded.includes(idx)
-          const dotColor = stateColors[idx] || '#666'
-          return (
-            <div className='so-state' key={state.id || idx}>
-              <div className='so-state-head' onClick={() => toggleExpanded(idx)}>
-                <div className='so-state-dot' style={{ background: dotColor }} />
-                <input
-                  className='so-state-name-input'
-                  value={state.name}
-                  onChange={e => { e.stopPropagation(); updateState(idx, 'name', e.target.value) }}
-                  onClick={e => e.stopPropagation()}
-                />
-                <ChevronRightIcon size='1rem' className={`so-chevron${isOpen ? ' open' : ''}`} />
-              </div>
+        {/* Override controls for stages 2/3 */}
+        {isOverrideStage && (
+          <div className='so-override'>
+            <div className='so-override-label'>Model, Collision, Anim — varsayılan Durum {s - 1}'den miras alır</div>
+          </div>
+        )}
 
-              {isOpen && (
-                <div className='so-state-body'>
-                  {/* Model */}
-                  <div className='so-row'>
-                    <div className='so-label'>Model</div>
-                    <div className='so-value'>
-                      <button
-                        className={`so-file-btn${state.model ? ' has-file' : ''}`}
-                        onClick={() => modelFileRefs[idx]?.current?.click()}
-                      >
-                        {state.model ? state.model.split('/').pop().slice(0, 12) + '...' : 'GLB Seç'}
-                      </button>
-                      {state.model && (
-                        <button className='so-clear-btn' onClick={() => updateState(idx, 'model', null)}>
-                          <XIcon size='0.75rem' />
-                        </button>
-                      )}
-                      <input
-                        ref={modelFileRefs[idx]}
-                        type='file' accept='.glb' style={{ display: 'none' }}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadModel(idx, f); e.target.value = '' }}
-                      />
-                    </div>
-                  </div>
+        {/* Model */}
+        <div className='so-section'>Model</div>
+        {isOverrideStage && (
+          <div className='so-row'>
+            <div className='so-label'>Override</div>
+            <div className='so-value'>
+              <button
+                className={`so-override-btn ${p[`modelOverride${s}`] ? 'on' : 'off'}`}
+                onClick={() => updateProp(`modelOverride${s}`, !p[`modelOverride${s}`])}
+              >
+                {p[`modelOverride${s}`] ? 'Override açık' : 'Miras alıyor'}
+              </button>
+            </div>
+          </div>
+        )}
+        {(!isOverrideStage || p[`modelOverride${s}`]) && (
+          <div className='so-row'>
+            <div className='so-label'>GLB</div>
+            {renderFileBtn(`model${s}`, '.glb', 'Model seç', 'model')}
+          </div>
+        )}
 
-                  {/* Audio */}
-                  <div className='so-row'>
-                    <div className='so-label'>Ses</div>
-                    <div className='so-value'>
-                      <button
-                        className={`so-file-btn${state.audio ? ' has-file' : ''}`}
-                        onClick={() => audioFileRefs[idx]?.current?.click()}
-                      >
-                        <VolumeIcon size='0.75rem' />
-                        {state.audio ? state.audio.split('/').pop().slice(0, 12) + '...' : 'Ses Seç'}
-                      </button>
-                      {state.audio && (
-                        <button className='so-clear-btn' onClick={() => updateState(idx, 'audio', null)}>
-                          <XIcon size='0.75rem' />
-                        </button>
-                      )}
-                      <input
-                        ref={audioFileRefs[idx]}
-                        type='file' accept='.mp3,.wav,.ogg' style={{ display: 'none' }}
-                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadAudio(idx, f); e.target.value = '' }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Animation */}
-                  <div className='so-row'>
-                    <div className='so-label'>Animasyon</div>
-                    <div className='so-value'>
-                      <input
-                        className='so-input'
-                        placeholder='Animasyon adı...'
-                        value={state.animName}
-                        onChange={e => updateState(idx, 'animName', e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Anim loop */}
-                  <div className='so-row'>
-                    <div className='so-label'>Döngü</div>
-                    <div className='so-value'>
-                      <button
-                        className={`so-toggle ${state.animLoop ? 'on' : 'off'}`}
-                        onClick={() => updateState(idx, 'animLoop', !state.animLoop)}
-                      >
-                        <RepeatIcon size='0.75rem' />
-                        {state.animLoop ? 'Döngü' : 'Tek tur'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Wait time */}
-                  <div className='so-row'>
-                    <div className='so-label'>Bekleme</div>
-                    <div className='so-value'>
-                      <button className='so-step-btn' onClick={() => updateState(idx, 'animWait', Math.max(0, (state.animWait || 0) - 0.5))}>
-                        <Minus size='0.75rem' />
-                      </button>
-                      <input
-                        className='so-num-input'
-                        type='number' min='0' step='0.5'
-                        value={state.animWait ?? 0}
-                        onChange={e => updateState(idx, 'animWait', parseFloat(e.target.value) || 0)}
-                      />
-                      <button className='so-step-btn' onClick={() => updateState(idx, 'animWait', (state.animWait || 0) + 0.5)}>
-                        <Plus size='0.75rem' />
-                      </button>
-                      <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>sn</span>
-                    </div>
-                  </div>
-
-                  {/* Collider */}
-                  <div className='so-row'>
-                    <div className='so-label'>Collider</div>
-                    <div className='so-value'>
-                      <button
-                        className={`so-toggle ${state.collider ? 'on' : 'off'}`}
-                        onClick={() => updateState(idx, 'collider', !state.collider)}
-                      >
-                        {state.collider ? 'Açık' : 'Kapalı'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Visible */}
-                  <div className='so-row'>
-                    <div className='so-label'>Görünür</div>
-                    <div className='so-value'>
-                      <button
-                        className={`so-toggle ${state.visible ? 'on' : 'off'}`}
-                        onClick={() => updateState(idx, 'visible', !state.visible)}
-                      >
-                        {state.visible ? <EyeIcon size='0.75rem' /> : <EyeOffIcon size='0.75rem' />}
-                        {state.visible ? 'Görünür' : 'Gizli'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+        {/* Collision */}
+        {(!isOverrideStage || p[`modelOverride${s}`]) && (
+          <div className='so-row'>
+            <div className='so-label'>Collision</div>
+            <div className='so-value'>
+              {isOverrideStage ? (
+                <>
+                  <button
+                    className={`so-override-btn ${p[`collisionOverride${s}`] ? 'on' : 'off'}`}
+                    onClick={() => updateProp(`collisionOverride${s}`, !p[`collisionOverride${s}`])}
+                  >
+                    {p[`collisionOverride${s}`] ? 'Override' : 'Miras'}
+                  </button>
+                  {p[`collisionOverride${s}`] && renderToggle(`collision${s}`, 'Evet', 'Hayır')}
+                </>
+              ) : (
+                renderToggle(`collision${s}`, 'Evet', 'Hayır')
               )}
             </div>
-          )
-        })}
+          </div>
+        )}
+
+        {/* Interaction */}
+        <div className='so-section'>Etkileşim</div>
+        {renderInteract(`interact${s}`, `radius${s}`, `hint${s}`)}
+
+        {/* Audio */}
+        <div className='so-section'>Ses</div>
+        <div className='so-row'>
+          <div className='so-label'>MP3</div>
+          {renderFileBtn(`audio${s}`, '.mp3,.wav,.ogg', 'Ses seç', 'audio')}
+        </div>
       </div>
     </div>
   )
@@ -854,7 +882,6 @@ function SmartObjectEditor({ entity, world }) {
 
 // ------------------------------------------------------------------
 // WorldObjectsPanel — floating panel showing all scene entities
-// ------------------------------------------------------------------
 function WorldObjectsPanel({ world }) {
   const [entities, setEntities] = useState([])
   const [selectedId, setSelectedId] = useState(null)

@@ -106,15 +106,14 @@ export function Sidebar({ world, ui }) {
           top: calc(2rem + env(safe-area-inset-top));
           right: calc(2rem + env(safe-area-inset-right));
           bottom: calc(2rem + env(safe-area-inset-bottom));
-          left: calc(2rem + env(safe-area-inset-left));
           display: flex;
+          flex-direction: row-reverse;
           gap: 0.625rem;
           z-index: 1; // above chat etc
           @media all and (max-width: 1200px) {
             top: calc(1rem + env(safe-area-inset-top));
             right: calc(1rem + env(safe-area-inset-right));
             bottom: calc(1rem + env(safe-area-inset-bottom));
-            left: calc(1rem + env(safe-area-inset-left));
           }
           .sidebar-sections {
             display: flex;
@@ -972,13 +971,43 @@ function Add({ world, hidden }) {
       model: null,
       script: 'asset://world/scripts/smart-object.js',
       props: {
+        // Marker so our custom editor knows to show SmartObjectEditor
         smartObject: true,
-        currentState: 0,
-        states: [
-          { id: uuid(), name: 'Durum 1', model: null, audio: null, animName: '', animLoop: true, animWait: 2, collider: true, visible: true, color: '#4f46e5' },
-          { id: uuid(), name: 'Durum 2', model: null, audio: null, animName: '', animLoop: true, animWait: 2, collider: true, visible: true, color: '#10b981' },
-          { id: uuid(), name: 'Durum 3', model: null, audio: null, animName: '', animLoop: false, animWait: 0, collider: false, visible: false, color: '#ef4444' },
-        ],
+        // SDK-compatible fields (matches getStore() in smart-object.js)
+        label: 'Smart Object',
+        visible: null,
+        sync: false,
+        stage: 1,
+        // Stage 1
+        model1: null,
+        collision1: false,
+        anim1: null,
+        interact1: 'click',
+        hint1: 'Tıkla',
+        radius1: 1,
+        audio1: null,
+        // Stage 2 (inherits from stage 1 by default)
+        modelOverride2: false,
+        model2: null,
+        collisionOverride2: false,
+        collision2: false,
+        animOverride2: false,
+        anim2: null,
+        interact2: null,
+        radius2: 1,
+        hint2: '',
+        audio2: null,
+        // Stage 3 (inherits from stage 2 by default)
+        modelOverride3: false,
+        model3: null,
+        collisionOverride3: false,
+        collision3: false,
+        animOverride3: false,
+        anim3: null,
+        interact3: null,
+        radius3: 1,
+        hint3: '',
+        audio3: null,
       },
       preload: false,
       disabled: false,
