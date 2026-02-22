@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hyperfy 3D World</title>
+    <meta name="description" content="An interactive 3D virtual world built with Hyperfy" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Hyperfy 3D World" />
+    <meta property="og:description" content="An interactive 3D virtual world built with Hyperfy" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Hyperfy 3D World" />
+    <meta name="twitter:description" content="An interactive 3D virtual world built with Hyperfy" />
+
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- Use relative paths so the app works at any sub-path (e.g. GitHub Pages) -->
+    <link rel="preload" href="rubik.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" type="text/css" href="index.css?v={buildId}" />
+    <script>
+      window.PARTICLES_PATH = '{particlesPath}'
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="env.js?v={buildId}"></script>
+    <script src="{jsPath}" type="module"></script>
+  </body>
+</html>
