@@ -60,6 +60,10 @@ export class ClientBuilder extends System {
 
     this.dropTarget = null
     this.file = null
+
+    // Desktop mode: no pointer lock; click-to-select via raycasting;
+    // gizmo is the only way to transform objects.
+    this.desktopMode = false
   }
 
   async init({ viewport }) {
@@ -75,6 +79,23 @@ export class ClientBuilder extends System {
   start() {
     this.control = this.world.controls.bind({ priority: ControlPriorities.BUILDER })
     this.control.mouseLeft.onPress = () => {
+      // Desktop mode: never acquire pointer lock. Click selects the entity
+      // under the cursor; gizmo handles its own drag without pointer lock.
+      if (this.desktopMode && this.enabled) {
+        // Defer one microtask so TransformControls' pointerdown handler runs
+        // first and sets gizmoActive before we check it.
+        Promise.resolve().then(() => {
+          if (this.gizmoActive) return // gizmo handle was clicked – let it handle the drag
+          const entity = this.getEntityAtCursor()
+          if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
+            this.select(entity)
+            this.world.ui.setApp(entity)
+          } else {
+            this.select(null)
+          }
+        })
+        return true // capture – prevents the default pointer-lock acquisition
+      }
       // pointer lock requires user-gesture in safari
       // so this can't be done during update cycle
       if (!this.control.pointer.locked) {
@@ -353,8 +374,8 @@ export class ClientBuilder extends System {
         else this.select(null)
       }
     }
-    // deselect on pointer unlock
-    if (this.selected && !this.beam.active) {
+    // deselect on pointer unlock (skip in desktop mode – pointer is never locked there)
+    if (!this.desktopMode && this.selected && !this.beam.active) {
       this.select(null)
     }
     // duplicate
@@ -476,8 +497,8 @@ export class ClientBuilder extends System {
       const app = this.selected
       app.root.scale.copy(this.gizmoTarget.scale)
     }
-    // grab updates
-    if (this.selected && this.mode === 'grab') {
+    // grab updates (disabled in desktop mode – grab requires pointer lock / beam)
+    if (!this.desktopMode && this.selected && this.mode === 'grab') {
       const app = this.selected
       const hit = this.getHitAtBeam(app, true)
       // place at distance

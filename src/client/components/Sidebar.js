@@ -32,6 +32,8 @@ import {
   Volume2Icon,
   HammerIcon,
   CircleArrowRightIcon,
+  PlayIcon,
+  RepeatIcon,
 } from 'lucide-react'
 import { cls } from './cls'
 import { useContext, useEffect, useMemo, useRef, useState } from 'react'
@@ -907,6 +909,8 @@ function Add({ world, hidden }) {
   const span = 4
   const gap = '0.5rem'
   const fileRef = useRef()
+  const vrmRef = useRef()
+  const hdriRef = useRef()
   const [uploading, setUploading] = useState(false)
 
   const spawnBlueprint = blueprint => {
@@ -938,26 +942,72 @@ function Add({ world, hidden }) {
   const uploadModel = async file => {
     if (!file) return
     const ext = file.name.split('.').pop().toLowerCase()
-    if (!['glb', 'vrm'].includes(ext)) return
+    if (ext !== 'glb') return
     setUploading(true)
     try {
       const hash = await hashFile(file)
-      const filename = `${hash}.${ext}`
-      const url = `asset://${filename}`
-      const type = ext === 'vrm' ? 'avatar' : 'model'
-      world.loader.insert(type, url, file)
+      const url = `asset://${hash}.glb`
+      world.loader.insert('model', url, file)
       await world.network.upload(file)
+
+      // Try to read animation names from the GLB
+      let animNames = []
+      try {
+        const buf = await file.arrayBuffer()
+        const glb = await world.loader.gltfLoader.parseAsync(buf)
+        animNames = (glb.animations || []).map(a => a.name).filter(Boolean)
+      } catch {}
+
       const blueprint = {
         id: uuid(),
         version: 0,
         name: file.name.replace(/\.[^.]+$/, ''),
         model: url,
         script: null,
-        props: {},
+        props: animNames.length
+          ? { animNames, animate: null, animateLoop: true, collision: false }
+          : {},
         preload: false,
         disabled: false,
       }
       spawnBlueprint(blueprint)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const uploadVRM = async file => {
+    if (!file) return
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (ext !== 'vrm') return
+    setUploading(true)
+    try {
+      const transform = world.builder.getSpawnTransform(true)
+      await world.builder.addAvatar(file, transform, true)
+    } catch (e) {
+      console.error('VRM upload error', e)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const uploadHDRI = async file => {
+    if (!file) return
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (!['hdr', 'exr'].includes(ext)) return
+    setUploading(true)
+    try {
+      const hash = await hashFile(file)
+      const url = `asset://${hash}.${ext}`
+      world.loader.insert('hdr', url, file)
+      await world.network.upload(file)
+      // Update base environment HDR
+      if (world.environment?.base) {
+        world.environment.base.hdr = url
+        world.environment.updateSky?.()
+      }
+    } catch (e) {
+      console.error('HDRI upload error', e)
     } finally {
       setUploading(false)
     }
@@ -1109,25 +1159,75 @@ function Add({ world, hidden }) {
           <div className='add-title'>Ekle</div>
         </div>
         <div className='add-content noscrollbar'>
-          {/* File upload */}
+          {/* GLB Model upload */}
           <div>
-            <div className='add-section-label'>Model / Sahne</div>
+            <div className='add-section-label'>3D Model</div>
             <div className='add-btn-row'>
               <button
                 className='add-btn'
                 disabled={uploading}
                 onClick={() => fileRef.current?.click()}
               >
-                {uploading ? 'Yükleniyor...' : '3D Model Yükle (.glb)'}
+                {uploading ? 'Yükleniyor...' : 'GLB Model Yükle'}
               </button>
               <input
                 ref={fileRef}
                 type='file'
-                accept='.glb,.vrm'
+                accept='.glb'
                 style={{ display: 'none' }}
                 onChange={e => {
                   const f = e.target.files?.[0]
                   if (f) uploadModel(f)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+          </div>
+
+          {/* VRM Avatar upload */}
+          <div>
+            <div className='add-section-label'>Avatar</div>
+            <div className='add-btn-row'>
+              <button
+                className='add-btn'
+                disabled={uploading}
+                onClick={() => vrmRef.current?.click()}
+              >
+                VRM Avatar Yükle
+              </button>
+              <input
+                ref={vrmRef}
+                type='file'
+                accept='.vrm'
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const f = e.target.files?.[0]
+                  if (f) uploadVRM(f)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+          </div>
+
+          {/* HDRI Environment */}
+          <div>
+            <div className='add-section-label'>Ortam (HDRI)</div>
+            <div className='add-btn-row'>
+              <button
+                className='add-btn'
+                disabled={uploading}
+                onClick={() => hdriRef.current?.click()}
+              >
+                HDRI Yükle (.hdr)
+              </button>
+              <input
+                ref={hdriRef}
+                type='file'
+                accept='.hdr,.exr'
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const f = e.target.files?.[0]
+                  if (f) uploadHDRI(f)
                   e.target.value = ''
                 }}
               />
@@ -1406,9 +1506,156 @@ function App({ world, hidden }) {
             </div>
           )}
           <AppFields world={world} app={app} blueprint={blueprint} />
+          <AppModelAnimations app={app} blueprint={blueprint} world={world} />
         </div>
       </div>
     </Pane>
+  )
+}
+
+/**
+ * AppModelAnimations — shows animation controls for plain GLB model entities
+ * (no script, has model, and the model has animation clips).
+ */
+function AppModelAnimations({ app, blueprint, world }) {
+  // Only show for plain models that have animation names stored in props
+  const animNames = blueprint?.props?.animNames
+  if (!animNames?.length || blueprint.script || !blueprint.model) return null
+
+  const [activeAnim, setActiveAnim] = useState(null) // name or null
+  const [loop, setLoop] = useState(blueprint.props.animateLoop !== false)
+
+  // Collect SkinnedMesh nodes from the live entity root
+  const getSkinnedMeshes = () => {
+    const meshes = []
+    app.root?.traverse?.(node => {
+      if (node.name === 'skinnedmesh' && node.animNames?.length > 0) {
+        meshes.push(node)
+      }
+    })
+    return meshes
+  }
+
+  const playAnim = (name, loopVal) => {
+    const meshes = getSkinnedMeshes()
+    if (!meshes.length) return
+    meshes.forEach(m => {
+      try { m.play({ name, loop: loopVal }) } catch {}
+    })
+    setActiveAnim(name)
+    // Persist to blueprint props so it survives rebuilds
+    const version = blueprint.version + 1
+    const newProps = { ...blueprint.props, animate: name, animateLoop: loopVal }
+    world.blueprints.modify({ id: blueprint.id, version, props: newProps })
+    world.network.send('blueprintModified', { id: blueprint.id, version, props: newProps })
+  }
+
+  const stopAnim = () => {
+    const meshes = getSkinnedMeshes()
+    meshes.forEach(m => { try { m.stop() } catch {} })
+    setActiveAnim(null)
+    const version = blueprint.version + 1
+    const newProps = { ...blueprint.props, animate: null }
+    world.blueprints.modify({ id: blueprint.id, version, props: newProps })
+    world.network.send('blueprintModified', { id: blueprint.id, version, props: newProps })
+  }
+
+  const toggleLoop = () => {
+    const newLoop = !loop
+    setLoop(newLoop)
+    if (activeAnim) playAnim(activeAnim, newLoop)
+  }
+
+  // Sync state from blueprint props on mount
+  useEffect(() => {
+    if (blueprint.props.animate) setActiveAnim(blueprint.props.animate)
+    if (blueprint.props.animateLoop !== undefined) setLoop(blueprint.props.animateLoop !== false)
+  }, [blueprint.id])
+
+  return (
+    <div
+      css={css`
+        border-top: 1px solid rgba(255,255,255,0.05);
+        padding: 0.5rem 0.75rem 0.75rem;
+
+        .anim-title {
+          font-size: 0.75rem; color: rgba(255,255,255,0.35);
+          text-transform: uppercase; letter-spacing: 0.05em;
+          padding: 0.25rem 0 0.375rem;
+          display: flex; align-items: center; gap: 0.5rem;
+        }
+        .anim-controls {
+          display: flex; flex-direction: column; gap: 0.25rem;
+        }
+        .anim-row {
+          display: flex; align-items: center; gap: 0.375rem;
+        }
+        .anim-play-btn {
+          flex: 1; height: 1.875rem; border-radius: 0.5rem; padding: 0 0.5rem;
+          font-size: 0.8125rem; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;
+          border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
+          color: rgba(255,255,255,0.75); transition: all 0.12s;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          &:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); }
+          &.active {
+            background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.4);
+            color: #4ade80;
+          }
+        }
+        .anim-stop-btn {
+          height: 1.875rem; width: 1.875rem; flex-shrink: 0; border-radius: 0.5rem;
+          border: 1px solid rgba(239,68,68,0.25); background: rgba(239,68,68,0.1);
+          color: #f87171; cursor: pointer; display: flex; align-items: center; justify-content: center;
+          &:hover { background: rgba(239,68,68,0.2); }
+        }
+        .anim-loop-btn {
+          height: 1.875rem; width: 1.875rem; flex-shrink: 0; border-radius: 0.5rem;
+          border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
+          color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center;
+          &:hover { background: rgba(255,255,255,0.12); }
+          &.on { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.15); color: #a5b4fc; }
+        }
+      `}
+    >
+      <div className='anim-title'>
+        <PlayIcon size='0.75rem' />
+        Animasyonlar
+      </div>
+      <div className='anim-controls'>
+        {animNames.map(name => (
+          <div key={name} className='anim-row'>
+            <button
+              className={`anim-play-btn${activeAnim === name ? ' active' : ''}`}
+              onClick={() => activeAnim === name ? stopAnim() : playAnim(name, loop)}
+            >
+              <PlayIcon size='0.75rem' style={{ flexShrink: 0 }} />
+              {name}
+            </button>
+            {activeAnim === name && (
+              <button
+                className={`anim-loop-btn${loop ? ' on' : ''}`}
+                title={loop ? 'Döngü Açık' : 'Döngü Kapalı'}
+                onClick={toggleLoop}
+              >
+                <RepeatIcon size='0.8rem' />
+              </button>
+            )}
+          </div>
+        ))}
+        {activeAnim && (
+          <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', paddingTop: '0.125rem' }}>
+            Oynuyor: <span style={{ color: '#4ade80' }}>{activeAnim}</span>
+            {' · '}
+            <button
+              style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '0.75rem', padding: 0 }}
+              onClick={stopAnim}
+            >
+              Durdur
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 

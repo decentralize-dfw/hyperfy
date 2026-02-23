@@ -1141,6 +1141,9 @@ export function StandaloneEditorGate({ world }) {
     }
 
     world.builder.toggle(true)
+    // Enable desktop mode: no pointer lock, click-to-select, gizmo-only transforms
+    world.builder.desktopMode = true
+    world.builder.setMode('translate')
     setShowHint(true)
   }, [world])
 
