@@ -35,34 +35,6 @@
       "props": {},
       "preload": true,
       "disabled": false
-    },
-    {
-      "id": "X26KRWMcee",
-      "version": 0,
-      "name": "glixzehir-3.vrm",
-      "image": null,
-      "author": null,
-      "url": null,
-      "desc": null,
-      "model": "asset://90fafa064469d1bd9db040c44b81c891284a96a285ff50d74ccd4055726d50ba.vrm",
-      "script": null,
-      "props": {},
-      "preload": false,
-      "public": false,
-      "locked": false,
-      "unique": false,
-      "scene": false,
-      "disabled": false
-    },
-    {
-      "id": "TfKmrgm5D9",
-      "version": 0,
-      "name": "7-ASTRAL_EGG_PLANT-Digital_Topographies_07",
-      "model": "asset://8caee0a44b405f5df7f2b43e2d3856784da6549270ae7d59e4e2c276734a602e.glb",
-      "script": null,
-      "props": {},
-      "preload": false,
-      "disabled": false
     }
   ],
   "entities": [
@@ -72,7 +44,7 @@
       "blueprint": "bp-demo-world",
       "position": [
         0,
-        -3.734707136259298,
+        0,
         0
       ],
       "quaternion": [
@@ -80,50 +52,6 @@
         0,
         0,
         1
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "state": {}
-    },
-    {
-      "id": "xlYLKFWdVO",
-      "type": "app",
-      "blueprint": "X26KRWMcee",
-      "position": [
-        -19.81405781663075,
-        0,
-        -4.3219146352864595
-      ],
-      "quaternion": [
-        0,
-        0.08715574274765817,
-        0,
-        0.9961946980917455
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "state": {}
-    },
-    {
-      "id": "jwmA9ho5PC",
-      "type": "app",
-      "blueprint": "TfKmrgm5D9",
-      "position": [
-        -18,
-        -3.4731154553563663,
-        19.815403737166037
-      ],
-      "quaternion": [
-        0,
-        0.08715574274765817,
-        0,
-        0.9961946980917455
       ],
       "scale": [
         1,
