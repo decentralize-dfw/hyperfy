@@ -79,22 +79,24 @@ export class ClientBuilder extends System {
   start() {
     this.control = this.world.controls.bind({ priority: ControlPriorities.BUILDER })
     this.control.mouseLeft.onPress = () => {
-      // Desktop mode: never acquire pointer lock. Click selects the entity
-      // under the cursor; gizmo handles its own drag without pointer lock.
-      if (this.desktopMode && this.enabled) {
-        // Defer one microtask so TransformControls' pointerdown handler runs
-        // first and sets gizmoActive before we check it.
-        Promise.resolve().then(() => {
-          if (this.gizmoActive) return // gizmo handle was clicked – let it handle the drag
-          const entity = this.getEntityAtCursor()
-          if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
-            this.select(entity)
-            this.world.ui.setApp(entity)
-          } else {
-            this.select(null)
-          }
-        })
-        return true // capture – prevents the default pointer-lock acquisition
+      // Desktop mode: NEVER acquire pointer lock, regardless of enabled state.
+      if (this.desktopMode) {
+        if (this.enabled) {
+          // Defer one microtask so TransformControls' pointerdown handler runs
+          // first and sets gizmoActive before we check it.
+          Promise.resolve().then(() => {
+            if (this.gizmoActive) return // gizmo handle – let it handle the drag
+            const entity = this.getEntityAtCursor()
+            if (entity?.isApp && !entity.data.pinned && !entity.blueprint.scene) {
+              this.select(entity)
+              this.world.ui.setApp(entity)
+            } else {
+              this.select(null)
+            }
+          })
+          return true // capture – prevents lower-priority handlers
+        }
+        return // builder off but desktopMode – skip pointer lock, no capture
       }
       // pointer lock requires user-gesture in safari
       // so this can't be done during update cycle

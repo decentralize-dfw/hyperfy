@@ -102,6 +102,7 @@ export function Sidebar({ world, ui }) {
     <HintProvider>
       <div
         className='sidebar'
+        onPointerDown={e => { e.nativeEvent.isCoreUI = true }}
         css={css`
           position: absolute;
           font-size: 1rem;
@@ -912,6 +913,10 @@ function Add({ world, hidden }) {
   const vrmRef = useRef()
   const hdriRef = useRef()
   const [uploading, setUploading] = useState(false)
+  // HDRI state — track active texture + background/light toggles
+  const [hdriTexture, setHdriTexture] = useState(null)
+  const [hdriBg, setHdriBg] = useState(true)
+  const [hdriLight, setHdriLight] = useState(true)
 
   const spawnBlueprint = blueprint => {
     blueprint = cloneDeep(blueprint)
@@ -1001,16 +1006,42 @@ function Add({ world, hidden }) {
       const url = `asset://${hash}.${ext}`
       world.loader.insert('hdr', url, file)
       await world.network.upload(file)
-      // Update base environment HDR
-      if (world.environment?.base) {
-        world.environment.base.hdr = url
-        world.environment.updateSky?.()
-      }
+      // Load the texture (uses the just-inserted cache entry)
+      const texture = await world.loader.load('hdr', url)
+      texture.mapping = THREE.EquirectangularReflectionMapping
+      // Apply as both background and lighting by default
+      world.stage.scene.environment = texture
+      world.stage.scene.background = texture
+      setHdriTexture(texture)
+      setHdriBg(true)
+      setHdriLight(true)
     } catch (e) {
       console.error('HDRI upload error', e)
     } finally {
       setUploading(false)
     }
+  }
+
+  const toggleHdriBg = () => {
+    if (!hdriTexture) return
+    const next = !hdriBg
+    world.stage.scene.background = next ? hdriTexture : null
+    setHdriBg(next)
+  }
+
+  const toggleHdriLight = () => {
+    if (!hdriTexture) return
+    const next = !hdriLight
+    world.stage.scene.environment = next ? hdriTexture : null
+    setHdriLight(next)
+  }
+
+  const removeHDRI = () => {
+    world.stage.scene.background = null
+    world.stage.scene.environment = null
+    setHdriTexture(null)
+    setHdriBg(true)
+    setHdriLight(true)
   }
 
   const addSmartObject = () => {
@@ -1212,25 +1243,100 @@ function Add({ world, hidden }) {
           {/* HDRI Environment */}
           <div>
             <div className='add-section-label'>Ortam (HDRI)</div>
+            {!hdriTexture ? (
+              <div className='add-btn-row'>
+                <button
+                  className='add-btn'
+                  disabled={uploading}
+                  onClick={() => hdriRef.current?.click()}
+                >
+                  {uploading ? 'Yükleniyor...' : 'HDRI Yükle (.hdr)'}
+                </button>
+              </div>
+            ) : (
+              <div
+                css={css`
+                  display: flex; flex-direction: column; gap: 0.35rem;
+                  .hdri-row { display: flex; gap: 0.35rem; }
+                  .hdri-tog {
+                    flex: 1; height: 2rem; border-radius: 0.6rem;
+                    font-size: 0.8125rem; cursor: pointer;
+                    display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+                    border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
+                    color: rgba(255,255,255,0.5); transition: all 0.12s;
+                    &.on {
+                      background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.4);
+                      color: #4ade80;
+                    }
+                    &:hover { background: rgba(255,255,255,0.1); }
+                  }
+                  .hdri-remove {
+                    height: 2rem; padding: 0 0.75rem; border-radius: 0.6rem;
+                    font-size: 0.75rem; cursor: pointer;
+                    display: flex; align-items: center; justify-content: center;
+                    border: 1px solid rgba(239,68,68,0.2); background: rgba(239,68,68,0.07);
+                    color: #f87171; transition: all 0.12s;
+                    &:hover { background: rgba(239,68,68,0.18); }
+                  }
+                `}
+              >
+                <div className='hdri-row'>
+                  <button
+                    className={`hdri-tog${hdriLight ? ' on' : ''}`}
+                    onClick={toggleHdriLight}
+                  >
+                    Işık {hdriLight ? '●' : '○'}
+                  </button>
+                  <button
+                    className={`hdri-tog${hdriBg ? ' on' : ''}`}
+                    onClick={toggleHdriBg}
+                  >
+                    Arka Plan {hdriBg ? '●' : '○'}
+                  </button>
+                  <button className='hdri-remove' onClick={removeHDRI} title='HDRI Kaldır'>
+                    ✕
+                  </button>
+                </div>
+                <button
+                  className='add-btn'
+                  style={{ marginTop: '0.1rem' }}
+                  disabled={uploading}
+                  onClick={() => hdriRef.current?.click()}
+                >
+                  HDRI Değiştir
+                </button>
+              </div>
+            )}
+            <input
+              ref={hdriRef}
+              type='file'
+              accept='.hdr,.exr'
+              style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) uploadHDRI(f)
+                e.target.value = ''
+              }}
+            />
+          </div>
+
+          {/* Ground plane */}
+          <div>
+            <div className='add-section-label'>Zemin</div>
             <div className='add-btn-row'>
               <button
                 className='add-btn'
-                disabled={uploading}
-                onClick={() => hdriRef.current?.click()}
+                onClick={() => spawnBlueprint({
+                  id: uuid(), version: 0,
+                  name: 'Zemin (Yer)',
+                  model: null,
+                  script: 'asset://world/scripts/ground-plane.js',
+                  props: {},
+                  preload: false, disabled: false,
+                })}
               >
-                HDRI Yükle (.hdr)
+                Zemin Ekle (200×200)
               </button>
-              <input
-                ref={hdriRef}
-                type='file'
-                accept='.hdr,.exr'
-                style={{ display: 'none' }}
-                onChange={e => {
-                  const f = e.target.files?.[0]
-                  if (f) uploadHDRI(f)
-                  e.target.value = ''
-                }}
-              />
             </div>
           </div>
 
@@ -1506,7 +1612,7 @@ function App({ world, hidden }) {
             </div>
           )}
           <AppFields world={world} app={app} blueprint={blueprint} />
-          <AppModelAnimations app={app} blueprint={blueprint} world={world} />
+          <AppModelControls app={app} blueprint={blueprint} world={world} />
         </div>
       </div>
     </Pane>
@@ -1514,148 +1620,187 @@ function App({ world, hidden }) {
 }
 
 /**
- * AppModelAnimations — shows animation controls for plain GLB model entities
- * (no script, has model, and the model has animation clips).
+ * AppModelControls — animation + collider controls for plain GLB model entities.
+ * Reads animation clip names from the LIVE entity's SkinnedMesh nodes so it
+ * works for any model regardless of how it was added (drag-drop, Add panel, etc.).
  */
-function AppModelAnimations({ app, blueprint, world }) {
-  // Only show for plain models that have animation names stored in props
-  const animNames = blueprint?.props?.animNames
-  if (!animNames?.length || blueprint.script || !blueprint.model) return null
+function AppModelControls({ app, blueprint, world }) {
+  // Only show for plain GLB models (no script, has model)
+  if (blueprint.script || !blueprint.model || blueprint.model.endsWith('.vrm')) return null
 
-  const [activeAnim, setActiveAnim] = useState(null) // name or null
-  const [loop, setLoop] = useState(blueprint.props.animateLoop !== false)
-
-  // Collect SkinnedMesh nodes from the live entity root
-  const getSkinnedMeshes = () => {
-    const meshes = []
+  // ── Collect SkinnedMesh nodes from the LIVE entity root ──────────────────
+  const [animNames, setAnimNames] = useState([])
+  useEffect(() => {
+    const names = new Set()
     app.root?.traverse?.(node => {
-      if (node.name === 'skinnedmesh' && node.animNames?.length > 0) {
-        meshes.push(node)
+      if (node.name === 'skinnedmesh') {
+        node.animNames?.forEach(n => names.add(n))
       }
     })
+    setAnimNames([...names])
+  }, [app.root, blueprint.model])
+
+  const getSkinnedMeshes = () => {
+    const meshes = []
+    app.root?.traverse?.(node => { if (node.name === 'skinnedmesh') meshes.push(node) })
     return meshes
   }
 
+  // ── Animation state ───────────────────────────────────────────────────────
+  const [activeAnim, setActiveAnim] = useState(blueprint.props?.animate || null)
+  const [loop, setLoop] = useState(blueprint.props?.animateLoop !== false)
+
+  const modifyProps = patch => {
+    const bp = world.blueprints.get(blueprint.id)
+    const version = bp.version + 1
+    const newProps = { ...bp.props, ...patch }
+    world.blueprints.modify({ id: bp.id, version, props: newProps })
+    world.network.send('blueprintModified', { id: bp.id, version, props: newProps })
+  }
+
   const playAnim = (name, loopVal) => {
-    const meshes = getSkinnedMeshes()
-    if (!meshes.length) return
-    meshes.forEach(m => {
-      try { m.play({ name, loop: loopVal }) } catch {}
-    })
+    getSkinnedMeshes().forEach(m => { try { m.play({ name, loop: loopVal }) } catch {} })
     setActiveAnim(name)
-    // Persist to blueprint props so it survives rebuilds
-    const version = blueprint.version + 1
-    const newProps = { ...blueprint.props, animate: name, animateLoop: loopVal }
-    world.blueprints.modify({ id: blueprint.id, version, props: newProps })
-    world.network.send('blueprintModified', { id: blueprint.id, version, props: newProps })
+    modifyProps({ animate: name, animateLoop: loopVal })
   }
 
   const stopAnim = () => {
-    const meshes = getSkinnedMeshes()
-    meshes.forEach(m => { try { m.stop() } catch {} })
+    getSkinnedMeshes().forEach(m => { try { m.stop() } catch {} })
     setActiveAnim(null)
-    const version = blueprint.version + 1
-    const newProps = { ...blueprint.props, animate: null }
-    world.blueprints.modify({ id: blueprint.id, version, props: newProps })
-    world.network.send('blueprintModified', { id: blueprint.id, version, props: newProps })
+    modifyProps({ animate: null })
   }
 
   const toggleLoop = () => {
-    const newLoop = !loop
-    setLoop(newLoop)
-    if (activeAnim) playAnim(activeAnim, newLoop)
+    const next = !loop
+    setLoop(next)
+    if (activeAnim) playAnim(activeAnim, next)
+    else modifyProps({ animateLoop: next })
   }
 
-  // Sync state from blueprint props on mount
-  useEffect(() => {
-    if (blueprint.props.animate) setActiveAnim(blueprint.props.animate)
-    if (blueprint.props.animateLoop !== undefined) setLoop(blueprint.props.animateLoop !== false)
-  }, [blueprint.id])
+  // ── Collider type ─────────────────────────────────────────────────────────
+  const colliderType = blueprint.props?.colliderType || 'none'
+  const colliderOptions = [
+    { value: 'none',   label: 'Yok' },
+    { value: 'box',    label: 'Bounding Box' },
+    { value: 'mesh',   label: 'Full Mesh' },
+  ]
+
+  const sectionCss = css`
+    border-top: 1px solid rgba(255,255,255,0.05);
+    padding: 0.375rem 0.75rem 0.625rem;
+    .mc-label {
+      font-size: 0.7rem; color: rgba(255,255,255,0.3);
+      text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 0.25rem 0 0.375rem;
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+    .mc-seg {
+      display: flex; gap: 0.25rem;
+    }
+    .mc-seg-btn {
+      flex: 1; height: 1.75rem; border-radius: 0.4rem;
+      font-size: 0.75rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.5);
+      transition: all 0.12s;
+      &:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); }
+      &.active {
+        background: rgba(99,102,241,0.18); border-color: rgba(99,102,241,0.4);
+        color: #a5b4fc;
+      }
+    }
+    .mc-anim-row {
+      display: flex; align-items: center; gap: 0.3rem; margin-top: 0.25rem;
+    }
+    .mc-play-btn {
+      flex: 1; height: 1.75rem; border-radius: 0.4rem; padding: 0 0.5rem;
+      font-size: 0.75rem; cursor: pointer;
+      display: flex; align-items: center; gap: 0.3rem;
+      border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.6); transition: all 0.12s; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+      &:hover { background: rgba(255,255,255,0.1); color: white; }
+      &.active {
+        background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.4); color: #4ade80;
+      }
+    }
+    .mc-icon-btn {
+      height: 1.75rem; width: 1.75rem; flex-shrink: 0; border-radius: 0.4rem;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.4); transition: all 0.12s;
+      &:hover { background: rgba(255,255,255,0.12); color: white; }
+      &.active { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.15); color: #a5b4fc; }
+      &.stop { border-color: rgba(239,68,68,0.2); background: rgba(239,68,68,0.07); color: #f87171;
+        &:hover { background: rgba(239,68,68,0.18); }
+      }
+    }
+  `
 
   return (
-    <div
-      css={css`
-        border-top: 1px solid rgba(255,255,255,0.05);
-        padding: 0.5rem 0.75rem 0.75rem;
+    <>
+      {/* ── Collider ── */}
+      <div css={sectionCss}>
+        <div className='mc-label'>Çarpışma (Collider)</div>
+        <div className='mc-seg'>
+          {colliderOptions.map(o => (
+            <button
+              key={o.value}
+              className={`mc-seg-btn${colliderType === o.value ? ' active' : ''}`}
+              onClick={() => modifyProps({ colliderType: o.value })}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        .anim-title {
-          font-size: 0.75rem; color: rgba(255,255,255,0.35);
-          text-transform: uppercase; letter-spacing: 0.05em;
-          padding: 0.25rem 0 0.375rem;
-          display: flex; align-items: center; gap: 0.5rem;
-        }
-        .anim-controls {
-          display: flex; flex-direction: column; gap: 0.25rem;
-        }
-        .anim-row {
-          display: flex; align-items: center; gap: 0.375rem;
-        }
-        .anim-play-btn {
-          flex: 1; height: 1.875rem; border-radius: 0.5rem; padding: 0 0.5rem;
-          font-size: 0.8125rem; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;
-          border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
-          color: rgba(255,255,255,0.75); transition: all 0.12s;
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          &:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); }
-          &.active {
-            background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.4);
-            color: #4ade80;
-          }
-        }
-        .anim-stop-btn {
-          height: 1.875rem; width: 1.875rem; flex-shrink: 0; border-radius: 0.5rem;
-          border: 1px solid rgba(239,68,68,0.25); background: rgba(239,68,68,0.1);
-          color: #f87171; cursor: pointer; display: flex; align-items: center; justify-content: center;
-          &:hover { background: rgba(239,68,68,0.2); }
-        }
-        .anim-loop-btn {
-          height: 1.875rem; width: 1.875rem; flex-shrink: 0; border-radius: 0.5rem;
-          border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
-          color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center;
-          &:hover { background: rgba(255,255,255,0.12); }
-          &.on { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.15); color: #a5b4fc; }
-        }
-      `}
-    >
-      <div className='anim-title'>
-        <PlayIcon size='0.75rem' />
-        Animasyonlar
-      </div>
-      <div className='anim-controls'>
-        {animNames.map(name => (
-          <div key={name} className='anim-row'>
-            <button
-              className={`anim-play-btn${activeAnim === name ? ' active' : ''}`}
-              onClick={() => activeAnim === name ? stopAnim() : playAnim(name, loop)}
-            >
-              <PlayIcon size='0.75rem' style={{ flexShrink: 0 }} />
-              {name}
-            </button>
-            {activeAnim === name && (
+      {/* ── Animations ── */}
+      {animNames.length > 0 && (
+        <div css={sectionCss}>
+          <div className='mc-label'>
+            <PlayIcon size='0.65rem' />
+            Animasyonlar
+          </div>
+          {animNames.map(name => (
+            <div key={name} className='mc-anim-row'>
               <button
-                className={`anim-loop-btn${loop ? ' on' : ''}`}
-                title={loop ? 'Döngü Açık' : 'Döngü Kapalı'}
-                onClick={toggleLoop}
+                className={`mc-play-btn${activeAnim === name ? ' active' : ''}`}
+                onClick={() => activeAnim === name ? stopAnim() : playAnim(name, loop)}
               >
-                <RepeatIcon size='0.8rem' />
+                <PlayIcon size='0.65rem' style={{ flexShrink: 0 }} />
+                {name}
               </button>
-            )}
-          </div>
-        ))}
-        {activeAnim && (
-          <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', paddingTop: '0.125rem' }}>
-            Oynuyor: <span style={{ color: '#4ade80' }}>{activeAnim}</span>
-            {' · '}
-            <button
-              style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '0.75rem', padding: 0 }}
-              onClick={stopAnim}
-            >
-              Durdur
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+              {/* Loop toggle — only visible for active animation */}
+              {activeAnim === name && (
+                <>
+                  <button
+                    className={`mc-icon-btn${loop ? ' active' : ''}`}
+                    title={loop ? 'Döngü (Loop)' : 'Tek Seferlik (One-shot)'}
+                    onClick={toggleLoop}
+                  >
+                    <RepeatIcon size='0.7rem' />
+                  </button>
+                  <button
+                    className='mc-icon-btn stop'
+                    title='Durdur'
+                    onClick={stopAnim}
+                  >
+                    <SquareIcon size='0.65rem' />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+          {activeAnim && (
+            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', marginTop: '0.25rem' }}>
+              {loop ? 'Döngü' : 'Tek Seferlik'} · {activeAnim}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   )
 }
 
